@@ -1319,6 +1319,15 @@ The "Files" tab at the bottom right browses the server over SFTP: a folder
 tree on the left, a file table on the right (with multiple selection), and
 a path bar where a path can be typed directly.
 
+### File manager only
+
+A host's context menu in the connection tree or the connection manager has
+"Open file manager only": it logs in with the host's credentials but opens
+no terminal, so the tab is just the file panel, without the server monitor.
+With no shell, the panel doesn't follow a terminal: its folder is the one
+browsed in the panel. Everything else in the panel works as usual:
+browsing, uploading, downloading, renaming, deleting, and editing files.
+
 ### Following the terminal's folder
 
 When the shell's working directory changes, as after `cd /var/log`, the

@@ -6982,6 +6982,16 @@ func (msgs Messages) OpenFile() string {
 	return Catalog.Format(msgs.locale, "openFile", nil)
 }
 
+// OpenFilesOnly says "Open file manager only"
+// in the language the app shows.
+func OpenFilesOnly() string { return In(i18n.Locale()).OpenFilesOnly() }
+
+// OpenFilesOnly says "Open file manager only"
+// in the language of msgs.
+func (msgs Messages) OpenFilesOnly() string {
+	return Catalog.Format(msgs.locale, "openFilesOnly", nil)
+}
+
 // TransferProgressLeft says "{done} of {total}, {speed}/s, {left} left"
 // in the language the app shows.
 func TransferProgressLeft(done string, total string, speed string, left string) string {

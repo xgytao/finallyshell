@@ -1107,6 +1107,7 @@
   "showInFinder": "Show in Finder",
   "showInExplorer": "Show in Explorer",
   "openFile": "Open",
+  "openFilesOnly": "Open file manager only",
   "transferProgressLeft": "{done} of {total}, {speed}/s, {left} left",
   "transfersUnderWay": "{count, plural, one {# transfer in progress} other {# transfers in progress}}",
   "@transfersUnderWay": {

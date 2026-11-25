@@ -739,6 +739,9 @@ func (a *App) managerItemMenu(c *ui.Context, m *managerState, menu *ui.Menu, it 
 	if menu.Item(locales.Connect()).Chosen() {
 		do(func() { a.connectFrom(m, h) })
 	}
+	if menu.Item(locales.OpenFilesOnly()).Chosen() {
+		do(func() { a.connectFromFileOnly(m, h) })
+	}
 	if menu.Item(locales.Edit()).Chosen() {
 		do(func() { a.editFrom(m, h) })
 	}
@@ -802,14 +805,27 @@ func (a *App) saveFromTree(m *managerState) {
 // as connectFromManager does; from the Connections page as the start
 // page does, in the new tab selected, the page staying where it is.
 func (a *App) connectFrom(m *managerState, h *config.Host) {
+	a.connectFromMode(m, h, false)
+}
+
+// connectFromFileOnly opens a file-only session to h from the tree of m:
+// it logs in as a session does, but opens no terminal, and its tab shows
+// the file panel alone (see fileOnlyArea).
+func (a *App) connectFromFileOnly(m *managerState, h *config.Host) {
+	a.connectFromMode(m, h, true)
+}
+
+// connectFromMode opens a session to h from the tree of m, file-only
+// when fileOnly.
+func (a *App) connectFromMode(m *managerState, h *config.Host, fileOnly bool) {
 	if m.win == WindowManager {
-		a.connectFromManager(h)
+		a.connectFromManagerMode(h, fileOnly)
 		return
 	}
 	if h == nil || h.Deleted() {
 		return
 	}
-	a.openSession(h)
+	a.openSessionMode(h, fileOnly)
 	a.redraw()
 }
 
@@ -837,13 +853,27 @@ func (a *App) editorTree(m *managerState) *managerState {
 // tab when one is selected, and brings the main window forward, closing
 // the manager unless the user keeps it open.
 func (a *App) connectFromManager(h *config.Host) {
+	a.connectFromManagerMode(h, false)
+}
+
+// connectFromManagerFileOnly opens a file-only session to h in the main
+// window, in its new tab when one is selected, and brings the main window
+// forward, closing the manager unless the user keeps it open.
+func (a *App) connectFromManagerFileOnly(h *config.Host) {
+	a.connectFromManagerMode(h, true)
+}
+
+// connectFromManagerMode opens a session to h in the main window, file-only
+// when fileOnly, in its new tab when one is selected, and brings the main
+// window forward, closing the manager unless the user keeps it open.
+func (a *App) connectFromManagerMode(h *config.Host, fileOnly bool) {
 	if h == nil || h.Deleted() {
 		return
 	}
 	if !a.settings.KeepManagerOpen {
 		a.closeWindow(WindowManager)
 	}
-	a.openSession(h)
+	a.openSessionMode(h, fileOnly)
 	a.plat.FocusWindow(WindowMain)
 	a.redraw()
 }

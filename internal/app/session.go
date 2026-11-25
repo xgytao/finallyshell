@@ -44,6 +44,11 @@ type Session struct {
 	err    error // why it failed or closed; nil when the user disconnected
 	ip     string
 
+	// fileOnly is a session with files and no terminal: it logs in as
+	// any session does, but opens no shell and runs no monitor, and its
+	// tab shows the file panel alone (see fileOnlyArea).
+	fileOnly bool
+
 	client *ssh.Client
 	panes  paneTree // its terminals (panes.go)
 	stats  monitor.Stats
@@ -106,6 +111,10 @@ func (s *Session) label() string {
 	return s.Host.Title()
 }
 
+// isFileOnly tells whether s is a file-only session, with files and no
+// terminal; false for nil.
+func (s *Session) isFileOnly() bool { return s != nil && s.fileOnly }
+
 // connect starts connecting s on a goroutine, with the password, or the
 // passphrase of its key, which the goroutine waits for from the
 // credential store when the app has not read it yet. A password the
@@ -132,11 +141,15 @@ func (a *App) connect(s *Session, secret string) {
 	spec := a.shellSpec(&h) // here, on the UI thread, which owns the settings
 	passphrase := a.storedPassphrase(s.Host)
 	// A shell in each pane: the one of a session connecting for the first
-	// time, every pane of the layout it had when it connects again.
-	if s.panes.root == nil {
-		s.panes.reset(newPane())
+	// time, every pane of the layout it had when it connects again. A
+	// file-only session has no panes at all: it never opens a shell.
+	var panes []*pane
+	if !s.fileOnly {
+		if s.panes.root == nil {
+			s.panes.reset(newPane())
+		}
+		panes = s.panes.panes()
 	}
-	panes := s.panes.panes()
 	fail := func(err error) {
 		a.post(func() {
 			s.status, s.err = statusFailed, err
@@ -159,71 +172,85 @@ func (a *App) connect(s *Session, secret string) {
 			client.Close()
 			return
 		}
-		// One after the other, in the order of the tree, which the
-		// followers tell the server's shells apart by. The first pane's
-		// shell is the session's: without it, connecting failed. A later
-		// one the server refuses, as past its MaxSessions, leaves its pane
-		// out of the layout.
-		terms := make([]*terminal.Terminal, len(panes))
-		var refused error
-		for i, p := range panes {
-			term, err := a.openPaneShell(s, p, client, spec)
-			if err != nil && i == 0 {
-				client.Close()
-				fail(err)
-				return
-			}
-			if err != nil && refused == nil {
-				refused = err
-			}
-			terms[i] = term
-		}
 		ip := h.Addr
 		if addr, ok := client.RemoteAddr().(*net.TCPAddr); ok {
 			ip = addr.IP.String()
 		}
-		a.post(func() {
-			if ctx.Err() != nil {
-				for _, term := range terms {
-					if term != nil {
-						term.Close()
-					}
+		if s.fileOnly {
+			// No shell, no monitor: the file panel is the session.
+			a.post(func() {
+				if ctx.Err() != nil {
+					client.Close()
+					return
 				}
-				client.Close()
-				return
-			}
-			s.client, s.ip = client, ip
-			for i, p := range panes {
-				switch {
-				case terms[i] == nil:
-					s.panes.remove(p)
-					continue
-				case !s.panes.has(p): // closed while connecting
-					terms[i].Close()
-					continue
-				}
-				p.term = terms[i]
-				s.panes.opened(p)
-				a.startPane(s, p, spec)
-			}
-			s.panes.refocus = true
-			if refused != nil {
-				a.notify(paneError(refused))
-			}
-			s.status, s.err = statusConnected, nil
-			a.noteConnected(s.Host)
-			a.startTunnels(s, h.Tunnels)
-		})
-		// The monitor polls with an exec channel; hosts that drop extra
-		// channels turn it off.
-		if spec.exec {
-			go monitor.Run(ctx, client, 2*time.Second, func(st monitor.Stats) {
-				a.post(func() {
-					if ctx.Err() == nil {
-						s.stats = st
-					}
-				})
+				s.client, s.ip = client, ip
+				s.status, s.err = statusConnected, nil
+				a.noteConnected(s.Host)
+				a.startTunnels(s, h.Tunnels)
 			})
+		} else {
+			// One after the other, in the order of the tree, which the
+			// followers tell the server's shells apart by. The first pane's
+			// shell is the session's: without it, connecting failed. A later
+			// one the server refuses, as past its MaxSessions, leaves its pane
+			// out of the layout.
+			terms := make([]*terminal.Terminal, len(panes))
+			var refused error
+			for i, p := range panes {
+				term, err := a.openPaneShell(s, p, client, spec)
+				if err != nil && i == 0 {
+					client.Close()
+					fail(err)
+					return
+				}
+				if err != nil && refused == nil {
+					refused = err
+				}
+				terms[i] = term
+			}
+			a.post(func() {
+				if ctx.Err() != nil {
+					for _, term := range terms {
+						if term != nil {
+							term.Close()
+						}
+					}
+					client.Close()
+					return
+				}
+				s.client, s.ip = client, ip
+				for i, p := range panes {
+					switch {
+					case terms[i] == nil:
+						s.panes.remove(p)
+						continue
+					case !s.panes.has(p): // closed while connecting
+						terms[i].Close()
+						continue
+					}
+					p.term = terms[i]
+					s.panes.opened(p)
+					a.startPane(s, p, spec)
+				}
+				s.panes.refocus = true
+				if refused != nil {
+					a.notify(paneError(refused))
+				}
+				s.status, s.err = statusConnected, nil
+				a.noteConnected(s.Host)
+				a.startTunnels(s, h.Tunnels)
+			})
+			// The monitor polls with an exec channel; hosts that drop extra
+			// channels turn it off.
+			if spec.exec {
+				go monitor.Run(ctx, client, 2*time.Second, func(st monitor.Stats) {
+					a.post(func() {
+						if ctx.Err() == nil {
+							s.stats = st
+						}
+					})
+				})
+			}
 		}
 		sc, err := remotefs.NewClient(client)
 		if err != nil {

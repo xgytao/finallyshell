@@ -333,6 +333,8 @@ func (a *App) View(c *ui.Context) {
 	if a.fullScreen.on {
 		if s := a.current(); s.isPanelTab() {
 			a.panelArea(c, s)
+		} else if s.isFileOnly() {
+			a.fileOnlyArea(c)
 		} else {
 			a.terminalArea(c)
 		}
@@ -352,10 +354,15 @@ func (a *App) cycle(d int) {
 
 // sidebar is the monitor over the session panel, or the session panel
 // alone while the monitor is on the right (rightcolumn.go), monitorPct
-// kept for when it comes back.
+// kept for when it comes back. A file-only session has no server
+// monitor: the session panel alone.
 func (a *App) sidebar(c *ui.Context) {
 	ui.Column(c).Fill().Background(colors.sidebar).Children(func() {
 		if a.monitorOnRight() {
+			a.sessionPanel(c)
+			return
+		}
+		if s := a.current(); s.isFileOnly() {
 			a.sessionPanel(c)
 			return
 		}
@@ -378,6 +385,12 @@ func (a *App) mainArea(c *ui.Context) {
 	terminal := func() { a.terminalArea(c) }
 	if s := a.current(); s.isPanelTab() {
 		a.withRightColumn(c, func() { a.panelArea(c, s) }, monitor, nil)
+		return
+	}
+	// A file-only session is the file panel alone: no terminal, no
+	// bottom panel, no command bar, no splits, no server monitor.
+	if s := a.current(); s.isFileOnly() {
+		a.fileOnlyArea(c)
 		return
 	}
 	if a.panelOnRight() {
@@ -466,7 +479,17 @@ func (a *App) setLanguage(tag string) {
 
 // openSession opens a session to h: in the selected row when it is a new
 // tab, else in a tab of its own.
-func (a *App) openSession(h *config.Host) { a.openSessionIn(a.selectedNewTab(), h) }
+func (a *App) openSession(h *config.Host) { a.openSessionMode(h, false) }
+
+// openSessionFileOnly opens a file-only session to h: it logs in as a
+// session does, but opens no terminal, and its tab shows the file panel
+// alone (see fileOnlyArea).
+func (a *App) openSessionFileOnly(h *config.Host) { a.openSessionMode(h, true) }
+
+// openSessionMode opens a session to h, file-only when fileOnly.
+func (a *App) openSessionMode(h *config.Host, fileOnly bool) {
+	a.openSessionInMode(a.selectedNewTab(), h, fileOnly)
+}
 
 // openSessionIn opens a session to h in tab, a new tab, or in a tab of
 // its own for nil. It reads the passwords connecting takes from the
@@ -474,19 +497,32 @@ func (a *App) openSession(h *config.Host) { a.openSessionIn(a.selectedNewTab(), 
 // asks for those the store does not have either: h's own, then its
 // proxy's and jump hosts', one at a time.
 func (a *App) openSessionIn(tab *Session, h *config.Host) {
-	if a.readChainSecrets(h, func() { a.openSessionIn(tab, h) }) {
+	a.openSessionInMode(tab, h, false)
+}
+
+// openSessionFileOnlyIn opens a file-only session to h in tab, a new tab,
+// or in a tab of its own for nil.
+func (a *App) openSessionFileOnlyIn(tab *Session, h *config.Host) {
+	a.openSessionInMode(tab, h, true)
+}
+
+// openSessionInMode opens a session to h in tab, file-only when fileOnly.
+func (a *App) openSessionInMode(tab *Session, h *config.Host, fileOnly bool) {
+	if a.readChainSecrets(h, func() { a.openSessionInMode(tab, h, fileOnly) }) {
 		return
 	}
 	if need := a.missingSecret(h); need != nil {
-		a.askSecret(need, func() { a.openSessionIn(tab, h) })
+		a.askSecret(need, func() { a.openSessionInMode(tab, h, fileOnly) })
 		return
 	}
 	pw := a.passwords[h.ID]
 	if tab != nil && tab.isNewTab() && !tab.isPanelTab() && slices.Contains(a.sessions, tab) {
+		tab.fileOnly = fileOnly
 		a.fillTab(tab, h, pw)
 		return
 	}
 	s := newSession(h)
+	s.fileOnly = fileOnly
 	a.sessions = append(a.sessions, s)
 	if !a.settings.NoAutoSelectTab || a.current() == nil {
 		a.active = len(a.sessions) - 1

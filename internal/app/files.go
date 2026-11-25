@@ -199,6 +199,41 @@ func fileColumns() []ui.TableColumn {
 	}
 }
 
+// fileOnlyArea is the main area of a file-only session: the file panel
+// alone, with a status while it connects or has failed, and no terminal,
+// command bar, splits or server monitor.
+func (a *App) fileOnlyArea(c *ui.Context) {
+	s := a.current()
+	if s == nil || s.isNewTab() {
+		return
+	}
+	if s.status != statusConnected {
+		colors := a.termColors()
+		termText := colors.Foreground
+		area := ui.Column(c.Key(s.ID)).Fill().Background(colors.Background)
+		a.reconnectShortcut(area, s)
+		area.Children(func() {
+			a.statusBanner(c, s)
+			connecting := s.status == statusConnecting
+			msg := ui.Column(c.Key(connecting)).Grow(1).Center().Gap(12)
+			if !connecting {
+				// For the key that connects again.
+				msg.Focusable().FocusRing(false).AutoFocus()
+			}
+			msg.Children(func() {
+				if connecting {
+					ui.Spinner(c).TextColor(termText).FontSize(22)
+					ui.Text(c, locales.ConnectingTo(s.target())).TextColor(termText)
+				} else {
+					ui.Text(c, s.statusText()).TextColor(termText).FontSize(15)
+				}
+			})
+		})
+		return
+	}
+	a.filePanel(c)
+}
+
 // filePanel browses the active session's server over SFTP.
 func (a *App) filePanel(c *ui.Context) {
 	s := a.connSession()
@@ -226,7 +261,11 @@ func (a *App) filePanel(c *ui.Context) {
 					a.openDir(s, home)
 				}
 			}
-			a.followButton(c, s)
+			// No shell to follow in a file-only session: the panel's
+			// folder is the one browsed in the panel.
+			if !s.fileOnly {
+				a.followButton(c, s)
+			}
 			ui.Box(c).Size(1, 16).Background(colors.line).Margin(0, 4)
 			// Their context menus also have the archive transfers.
 			uploadMenu := func(m *ui.Menu) { a.uploadMenuItems(m, s, f.cwd) }
